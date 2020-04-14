@@ -17,8 +17,8 @@
  // Network topology
  //
  //       n0 ----------- r1 ------------ n2
- //            100 Mbps        50 Mbps
- //             10 ms          10 ms
+ //            100 Mbps        1 Mbps
+ //             2 ms           0.5 ms
  //
  // - Flow from n0 to n2 using BulkSendApplication.
  
@@ -67,30 +67,55 @@ static void TraceCwnd(std::string name){
    Config::ConnectWithoutContext ("/NodeList/1/$ns3::TcpL4Protocol/SocketList/0/CongestionWindow", MakeCallback (&CwndTracer));
 }
 
+// For RTT tracing
+static Ptr<OutputStreamWrapper> rTTStream;
+static Time rTTValue;
+static bool firstRTT = true;
+
+static void RttTracer (Time oldval, Time newval){
+   if (firstRTT){
+     *rTTStream->GetStream () << "0.0 " << oldval.GetSeconds ()  << std::endl;
+     firstRTT = false;
+   }
+   *rTTStream->GetStream () << Simulator::Now ().GetSeconds () << " " << newval.GetSeconds ()  << std::endl;
+   rTTValue = newval;
+ }
+
+static void TraceRTT(std::string name){
+   std::cout << "trace RTT: " << name << "\n";
+   AsciiTraceHelper ascii;
+   rTTStream = ascii.CreateFileStream (name.c_str ());
+   Config::ConnectWithoutContext ("/NodeList/1/$ns3::TcpL4Protocol/SocketList/0/RTT", MakeCallback (&RttTracer));
+}
+
+
  int main (int argc, char *argv[]){
    // Default values for command line arguments
    uint32_t maxBytes = 0;
    std::string congestionAlg = "NewReno"; 
-   uint32_t duration = 120;
+   uint32_t duration = 10;
+   //uint32_t bufSize = 125;
+   std::string queueSize = "20p"; 
  
    CommandLine cmd;
    // Allow the user to override any of the defaults at
    // run-time, via command-line arguments
    cmd.AddValue ("maxBytes", "Total number of bytes for application to send", maxBytes);
+   //cmd.AddValue ("bufSize", "Total number of bytes for buffer", bufSize);
    cmd.AddValue ("duration", "Duration of the experiment in seconds", duration);
-   cmd.AddValue ("congestionAlg", "Congestion algorithm: NewReno, Vegas, Bic", congestionAlg);
+   cmd.AddValue ("queueSize", "Buffer size in packets", queueSize);
    cmd.Parse (argc, argv);
    
-   // Congestion algorithm in ns3
-   std::string congestionAlgName = "ns3::Tcp" + congestionAlg;
    // Filename for saving trace
-   std::string traceName = "cwnd" + congestionAlg + ".tr";
+   std::string traceNameCWND = "problem_cwnd_" + queueSize + ".tr";
+   // Filename for saving trace
+   std::string traceNameRTT = "problem_rtt_" + queueSize + ".tr";
 
    // Set TCP configuration
-   Config::SetDefault ("ns3::TcpL4Protocol::SocketType", StringValue (congestionAlgName));
+   Config::SetDefault ("ns3::TcpL4Protocol::SocketType", StringValue ("ns3::TcpNewReno"));
    Config::SetDefault ("ns3::TcpSocketBase::Sack", BooleanValue (false));
    Config::SetDefault ("ns3::TcpSocketBase::Timestamp", BooleanValue (false));
-   Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (1460));
+   Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (125));
    Config::SetDefault ("ns3::TcpSocket::SndBufSize", UintegerValue (13107200));
    Config::SetDefault ("ns3::TcpSocket::RcvBufSize", UintegerValue (13107200));
    Config::SetDefault ("ns3::TcpSocket::InitialCwnd", UintegerValue (1));
@@ -112,16 +137,16 @@ static void TraceCwnd(std::string name){
    PointToPointHelper sourceToGateway;
    DataRate sourceToGatewayRate("100Mbps");
    sourceToGateway.SetDeviceAttribute ("DataRate", DataRateValue (sourceToGatewayRate));
-   sourceToGateway.SetChannelAttribute ("Delay", StringValue ("10ms"));
-   sourceToGateway.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("50p")); 
+   sourceToGateway.SetChannelAttribute ("Delay", StringValue ("2ms"));
+   //sourceToGateway.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("10p")); 
    Time sourceGap = sourceToGatewayRate.CalculateBytesTxTime(36);
    sourceToGateway.SetDeviceAttribute("InterframeGap", TimeValue(sourceGap));
    
    PointToPointHelper gatewayToSink;
-   DataRate gatewayToSinkRate("50Mbps");
+   DataRate gatewayToSinkRate("1Mbps");
    gatewayToSink.SetDeviceAttribute ("DataRate", DataRateValue (gatewayToSinkRate));
-   gatewayToSink.SetChannelAttribute ("Delay", StringValue ("10ms"));
-   gatewayToSink.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("50p"));
+   gatewayToSink.SetChannelAttribute ("Delay", StringValue ("0.5ms"));
+   gatewayToSink.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue (queueSize));
    Time sinkGap = gatewayToSinkRate.CalculateBytesTxTime(36);
    gatewayToSink.SetDeviceAttribute("InterframeGap", TimeValue(sinkGap));;
 
@@ -178,7 +203,8 @@ static void TraceCwnd(std::string name){
    TrafficControlHelper::Default ().Uninstall (sinkDevs);
 
    // Enable tracing for cwnd change
-   Simulator::Schedule(Seconds(0.001), &TraceCwnd, traceName);
+   Simulator::Schedule(Seconds(0.001), &TraceCwnd, traceNameCWND);
+   Simulator::Schedule(Seconds(0.001), &TraceRTT, traceNameRTT);
 
    NS_LOG_INFO ("Run Simulation.");
    Simulator::Stop (Seconds (duration));
