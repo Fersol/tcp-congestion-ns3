@@ -137,7 +137,7 @@ static void TraceRTT(std::string name){
    PointToPointHelper sourceToGateway;
    DataRate sourceToGatewayRate("100Mbps");
    sourceToGateway.SetDeviceAttribute ("DataRate", DataRateValue (sourceToGatewayRate));
-   sourceToGateway.SetChannelAttribute ("Delay", StringValue ("2ms"));
+   sourceToGateway.SetChannelAttribute ("Delay", StringValue ("1.5ms"));
    //sourceToGateway.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("10p")); 
    Time sourceGap = sourceToGatewayRate.CalculateBytesTxTime(36);
    sourceToGateway.SetDeviceAttribute("InterframeGap", TimeValue(sourceGap));
@@ -145,7 +145,7 @@ static void TraceRTT(std::string name){
    PointToPointHelper gatewayToSink;
    DataRate gatewayToSinkRate("1Mbps");
    gatewayToSink.SetDeviceAttribute ("DataRate", DataRateValue (gatewayToSinkRate));
-   gatewayToSink.SetChannelAttribute ("Delay", StringValue ("0.5ms"));
+   gatewayToSink.SetChannelAttribute ("Delay", StringValue ("0.6ms"));
    gatewayToSink.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue (queueSize));
    Time sinkGap = gatewayToSinkRate.CalculateBytesTxTime(36);
    gatewayToSink.SetDeviceAttribute("InterframeGap", TimeValue(sinkGap));;
