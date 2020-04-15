@@ -46,11 +46,32 @@
  
  NS_LOG_COMPONENT_DEFINE ("TcpBulkSendExample");
  
+
+ Ptr <PacketSink> sink;
+ uint64_t lastTotalRx = 0;
+ static Ptr<OutputStreamWrapper> throughputStream;
+
+ static void CalculateThroughput(){
+   // Compute threshold for 1 time in 1000ms
+   double cur = (sink->GetTotalRx() - lastTotalRx) * (double) 8 / 1e6;
+   *throughputStream->GetStream () << Simulator::Now ().GetSeconds () << " " << cur << " Mbits" << std::endl;
+   lastTotalRx = sink->GetTotalRx();
+   Simulator::Schedule(MilliSeconds(1000), &CalculateThroughput);
+ }
+
+ static void TraceThroughput(std::string name){
+   std::cout << "trace: " << name << "\n";
+   AsciiTraceHelper ascii;
+   throughputStream = ascii.CreateFileStream (name.c_str ());
+   Simulator::Schedule(MilliSeconds(0), &CalculateThroughput);
+ }
+
  // Variables for tracing
  static Ptr<OutputStreamWrapper> cWndStream;
  static uint32_t cWndValue;
  static bool firstCwnd = true;
- 
+
+
  static void CwndTracer (uint32_t oldval, uint32_t newval){
    if (firstCwnd){
      *cWndStream->GetStream () << "0.0 " << oldval << std::endl;
@@ -110,6 +131,8 @@ static void TraceRTT(std::string name){
    std::string traceNameCWND = "problem_cwnd_" + queueSize + ".tr";
    // Filename for saving trace
    std::string traceNameRTT = "problem_rtt_" + queueSize + ".tr";
+   // Filename for saving trace
+   std::string traceNameThroughput = "problem_th_" + queueSize + ".tr";
 
    // Set TCP configuration
    Config::SetDefault ("ns3::TcpL4Protocol::SocketType", StringValue ("ns3::TcpNewReno"));
@@ -138,14 +161,15 @@ static void TraceRTT(std::string name){
    DataRate sourceToGatewayRate("100Mbps");
    sourceToGateway.SetDeviceAttribute ("DataRate", DataRateValue (sourceToGatewayRate));
    sourceToGateway.SetChannelAttribute ("Delay", StringValue ("1.5ms"));
-   //sourceToGateway.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("10p")); 
+   sourceToGateway.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("50p")); 
    Time sourceGap = sourceToGatewayRate.CalculateBytesTxTime(36);
    sourceToGateway.SetDeviceAttribute("InterframeGap", TimeValue(sourceGap));
    
    PointToPointHelper gatewayToSink;
-   DataRate gatewayToSinkRate("1Mbps");
+   // As 1Mbps * (165 + 36) / 125
+   DataRate gatewayToSinkRate("1.608Mbps");
    gatewayToSink.SetDeviceAttribute ("DataRate", DataRateValue (gatewayToSinkRate));
-   gatewayToSink.SetChannelAttribute ("Delay", StringValue ("0.6ms"));
+   gatewayToSink.SetChannelAttribute ("Delay", StringValue ("1ms"));
    gatewayToSink.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue (queueSize));
    Time sinkGap = gatewayToSinkRate.CalculateBytesTxTime(36);
    gatewayToSink.SetDeviceAttribute("InterframeGap", TimeValue(sinkGap));;
@@ -183,8 +207,10 @@ static void TraceRTT(std::string name){
    Address sinkLocalAddress (InetSocketAddress(Ipv4Address::GetAny(), port));  
    PacketSinkHelper sinkHelper ("ns3::TcpSocketFactory", sinkLocalAddress); 
    ApplicationContainer sinkApps = sinkHelper.Install (sinks);
-   sinkApps.Start (Seconds (0.0));
+   sinkApps.Start (Seconds (0));
    sinkApps.Stop (Seconds (duration));
+
+   sink = StaticCast<PacketSink>(sinkApps.Get(0));
 
    // Create a BulkSendApplication and install it on node 0
    AddressValue remoteAddress (InetSocketAddress(sink_interfaces.GetAddress(0,0), port));
@@ -195,7 +221,7 @@ static void TraceRTT(std::string name){
    // Set the amount of data to send in bytes in a chunk. 
    source.SetAttribute ("SendSize", UintegerValue (1000000));
    ApplicationContainer sourceApp = source.Install (sources.Get (0));
-   sourceApp.Start (Seconds (0.0));
+   sourceApp.Start (Seconds (0));
    sourceApp.Stop (Seconds (duration));
         
    // Disable traffic control
@@ -205,6 +231,7 @@ static void TraceRTT(std::string name){
    // Enable tracing for cwnd change
    Simulator::Schedule(Seconds(0.001), &TraceCwnd, traceNameCWND);
    Simulator::Schedule(Seconds(0.001), &TraceRTT, traceNameRTT);
+   Simulator::Schedule(Seconds(0.001), &TraceThroughput, traceNameThroughput);
 
    NS_LOG_INFO ("Run Simulation.");
    Simulator::Stop (Seconds (duration));
